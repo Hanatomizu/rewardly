@@ -1,0 +1,55 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>导入Excel - 积分管理系统</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f5f5f5; }
+        .container { max-width: 600px; margin: 50px auto; padding: 20px; background-color: white; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        input[type="file"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 3px; }
+        button { width: 100%; padding: 10px; background-color: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background-color: #218838; }
+        a { display: inline-block; margin-top: 10px; color: #007bff; text-decoration: none; }
+        .flash-messages { margin-bottom: 15px; }
+        .flash-error { color: red; }
+        .flash-success { color: green; }
+        .info-box { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .info-box h4 { margin-top: 0; }
+        .info-box ul { margin-bottom: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>从Excel导入积分记录</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-{{ category }}">{{ message | safe }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <div class="info-box">
+            <h4>导入说明：</h4>
+            <ul>
+                <li>Excel文件必须包含以下三列：姓名、加分、原因</li>
+                <li>操作者自动设置为当前登录用户</li>
+                <li>系统会验证用户是否存在，只有系统中存在的用户才能导入</li>
+                <li>加分列必须为数字</li>
+                <li>支持 .xlsx 和 .xls 格式</li>
+            </ul>
+        </div>
+
+        <form method="POST" enctype="multipart/form-data">
+            <label for="file">选择Excel文件:</label>
+            <input type="file" name="file" id="file" accept=".xlsx,.xls" required>
+
+            <button type="submit">导入Excel</button>
+        </form>
+        <a href="{{ url_for('dashboard') }}">返回仪表盘</a>
+    </div>
+</body>
+</html>

@@ -340,6 +340,110 @@ def export_excel():
     return render_template('export_excel.html')
 
 
+@app.route('/import_excel', methods=['GET', 'POST'])
+@checkLogin
+def import_excel():
+    if request.method == 'POST':
+        # 检查是否有文件上传
+        if 'file' not in request.files:
+            flash('请选择一个Excel文件', 'error')
+            return redirect(url_for('import_excel'))
+
+        file = request.files['file']
+
+        if file.filename == '':
+            flash('请选择一个Excel文件', 'error')
+            return redirect(url_for('import_excel'))
+
+        # 检查文件扩展名
+        if not file.filename.lower().endswith(('.xlsx', '.xls')):
+            flash('仅支持 .xlsx 或 .xls 格式的文件', 'error')
+            return redirect(url_for('import_excel'))
+
+        try:
+            # 读取Excel文件
+            df = pd.read_excel(file)
+        except Exception as e:
+            flash(f'无法读取Excel文件: {str(e)}', 'error')
+            return redirect(url_for('import_excel'))
+
+        # 检查必需的列
+        required_columns = ['姓名', '加分', '原因']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+
+        if missing_columns:
+            flash(f'Excel文件缺少必要的列: {", ".join(missing_columns)}', 'error')
+            return redirect(url_for('import_excel'))
+
+        # 检查数据类型和值
+        errors = []
+        valid_records = []
+
+        for idx, row in df.iterrows():
+            try:
+                person = str(row['姓名']).strip()
+                points = int(row['加分'])
+                reason = str(row['原因']).strip()
+
+                # 检查用户是否存在
+                conn = sqlite3.connect('rewardly.db')
+                c = conn.cursor()
+                c.execute("SELECT username FROM users WHERE username = ?", (person,))
+                user_exists = c.fetchone() is not None
+                conn.close()
+
+                if not user_exists:
+                    errors.append(f"第{idx + 2}行: 用户 '{person}' 不存在")
+                    continue
+
+                # 验证其他字段
+                if not person:
+                    errors.append(f"第{idx + 2}行: 姓名不能为空")
+                    continue
+
+                if not reason:
+                    errors.append(f"第{idx + 2}行: 原因不能为空")
+                    continue
+
+                # 添加有效记录
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                operator = session['username']  # 操作者为当前登录用户
+                valid_records.append((timestamp, person, operator, points, reason))
+
+            except ValueError:
+                errors.append(f"第{idx + 2}行: 加分必须为数字")
+                continue
+            except Exception as e:
+                errors.append(f"第{idx + 2}行: 处理数据时发生错误: {str(e)}")
+                continue
+
+        # 如果存在错误，显示错误信息
+        if errors:
+            error_msg = "导入过程中发现以下错误:<br>" + "<br>".join(errors)
+            flash(error_msg, 'error')
+            return redirect(url_for('import_excel'))
+
+        # 插入有效记录到数据库
+        if valid_records:
+            conn = sqlite3.connect('rewardly.db')
+            c = conn.cursor()
+
+            for record in valid_records:
+                c.execute("INSERT INTO points (timestamp, person, operator, points, reason) VALUES (?, ?, ?, ?, ?)",
+                          record)
+
+            conn.commit()
+            conn.close()
+
+            flash(f'成功导入 {len(valid_records)} 条记录', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('没有有效的记录可以导入', 'warning')
+            return redirect(url_for('import_excel'))
+
+    return render_template('import_excel.html')
+
+
 template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 os.makedirs(template_dir, exist_ok=True)
 
@@ -434,6 +538,7 @@ dashboard_html = '''
     {% endwith %}
 
     <a href="{{ url_for('add_record') }}" class="btn btn-primary">添加积分记录</a>
+    <a href="{{ url_for('import_excel') }}" class="btn btn-success">导入Excel</a>
     <a href="{{ url_for('export_excel') }}" class="btn btn-info">导出Excel</a>
 
     <table>
@@ -620,6 +725,64 @@ export_excel_html = '''
 </html>
 '''
 
+# 导入Excel页面模板
+import_excel_html = '''
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>导入Excel - 积分管理系统</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f5f5f5; }
+        .container { max-width: 600px; margin: 50px auto; padding: 20px; background-color: white; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        input[type="file"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 3px; }
+        button { width: 100%; padding: 10px; background-color: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background-color: #218838; }
+        a { display: inline-block; margin-top: 10px; color: #007bff; text-decoration: none; }
+        .flash-messages { margin-bottom: 15px; }
+        .flash-error { color: red; }
+        .flash-success { color: green; }
+        .info-box { background-color: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .info-box h4 { margin-top: 0; }
+        .info-box ul { margin-bottom: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>从Excel导入积分记录</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-{{ category }}">{{ message | safe }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <div class="info-box">
+            <h4>导入说明：</h4>
+            <ul>
+                <li>Excel文件必须包含以下三列：姓名、加分、原因</li>
+                <li>操作者自动设置为当前登录用户</li>
+                <li>系统会验证用户是否存在，只有系统中存在的用户才能导入</li>
+                <li>加分列必须为数字</li>
+                <li>支持 .xlsx 和 .xls 格式</li>
+            </ul>
+        </div>
+
+        <form method="POST" enctype="multipart/form-data">
+            <label for="file">选择Excel文件:</label>
+            <input type="file" name="file" id="file" accept=".xlsx,.xls" required>
+
+            <button type="submit">导入Excel</button>
+        </form>
+        <a href="{{ url_for('dashboard') }}">返回仪表盘</a>
+    </div>
+</body>
+</html>
+'''
+
 # 写入模板文件
 with open(os.path.join(template_dir, 'login.html'), 'w', encoding='utf-8') as f:
     f.write(login_html)
@@ -635,6 +798,9 @@ with open(os.path.join(template_dir, 'edit_record.html'), 'w', encoding='utf-8')
 
 with open(os.path.join(template_dir, 'export_excel.html'), 'w', encoding='utf-8') as f:
     f.write(export_excel_html)
+
+with open(os.path.join(template_dir, 'import_excel.html'), 'w', encoding='utf-8') as f:
+    f.write(import_excel_html)
 
 if __name__ == '__main__':
     initDB()
