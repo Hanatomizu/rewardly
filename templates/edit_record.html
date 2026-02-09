@@ -27,7 +27,7 @@
 
         <form method="POST">
             <label for="points">积分变化 (正数为加分，负数为扣分):</label>
-            <input type="number" name="points" id="points" value="{{ record[4] }}" required>
+            <input type="number" step="0.01" name="points" id="points" value="{{ record[4] }}" required>
 
             <label for="reason">原因:</label>
             <input type="text" name="reason" id="reason" value="{{ record[5] }}" required>

@@ -65,7 +65,7 @@
                 <td>{{ record[1] }}</td>
                 <td>{{ record[2] }}</td>
                 <td>{{ record[3] }}</td>
-                <td>{{ record[4] }}</td>
+                <td>{{ "%.2f"|format(record[4]) }}</td>
                 <td>{{ record[5] }}</td>
                 <td class="actions">
                     {% if session.role == 'admin' or (session.role == 'mod' and record[3] == session.username) %}

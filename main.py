@@ -26,7 +26,7 @@ def initDB():
         timestamp TEXT NOT NULL,
         person TEXT NOT NULL,
         operator TEXT NOT NULL,
-        points INTEGER NOT NULL,
+        points REAL NOT NULL,
         reason TEXT NOT NULL
     )''')
 
@@ -131,7 +131,7 @@ def dashboard():
 def add_record():
     if request.method == 'POST':
         person = request.form['person']
-        pointDelta = int(request.form['points'])
+        pointDelta = float(request.form['points'])
         reason = request.form['reason']
 
         conn = sqlite3.connect('rewardly.db')
@@ -198,7 +198,7 @@ def edit_record(record_id):
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
-        new_points_change = int(request.form['points'])
+        new_points_change = float(request.form['points'])
         new_reason = request.form['reason']
 
         c.execute("""UPDATE points 
@@ -344,6 +344,10 @@ def export_excel():
 @checkLogin
 def import_excel():
     if request.method == 'POST':
+        if session['role'] == 'user':
+            flash('Permission denied!', 'error')
+            return redirect(url_for('import_excel'))
+
         # 检查是否有文件上传
         if 'file' not in request.files:
             flash('请选择一个Excel文件', 'error')
@@ -382,7 +386,7 @@ def import_excel():
         for idx, row in df.iterrows():
             try:
                 person = str(row['姓名']).strip()
-                points = int(row['加分'])
+                points = float(row['加分'])
                 reason = str(row['原因']).strip()
 
                 # 检查用户是否存在
@@ -560,7 +564,7 @@ dashboard_html = '''
                 <td>{{ record[1] }}</td>
                 <td>{{ record[2] }}</td>
                 <td>{{ record[3] }}</td>
-                <td>{{ record[4] }}</td>
+                <td>{{ "%.2f"|format(record[4]) }}</td>
                 <td>{{ record[5] }}</td>
                 <td class="actions">
                     {% if session.role == 'admin' or (session.role == 'mod' and record[3] == session.username) %}
@@ -618,7 +622,7 @@ add_record_html = '''
             </select>
 
             <label for="points">积分变化 (正数为加分，负数为扣分):</label>
-            <input type="number" name="points" id="points" required>
+            <input type="number" step="0.01" name="points" id="points" required>
 
             <label for="reason">原因:</label>
             <input type="text" name="reason" id="reason" required>
@@ -661,7 +665,7 @@ edit_record_html = '''
 
         <form method="POST">
             <label for="points">积分变化 (正数为加分，负数为扣分):</label>
-            <input type="number" name="points" id="points" value="{{ record[4] }}" required>
+            <input type="number" step="0.01" name="points" id="points" value="{{ record[4] }}" required>
 
             <label for="reason">原因:</label>
             <input type="text" name="reason" id="reason" value="{{ record[5] }}" required>
