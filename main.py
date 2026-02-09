@@ -1,9 +1,10 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 from datetime import datetime
 import os
-
+import pandas as pd
+from io import BytesIO
 
 app = Flask("Rewardly")
 app.secret_key = "rewardly_hanatomizu"
@@ -32,11 +33,13 @@ def initDB():
     conn.commit()
     conn.close()
 
+
 def checkLogin(f):
     def loginRequired(*args, **kwargs):
         if 'uid' not in session:
             return redirect(url_for('login'))
         return f(*args, **kwargs)
+
     loginRequired.__name__ = f.__name__
     return loginRequired
 
@@ -69,6 +72,7 @@ def roleChecker(required_role):
 def index():
     return redirect(url_for("dashboard"))
 
+
 @app.route("/login", methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -77,7 +81,7 @@ def login():
 
         conn = sqlite3.connect('rewardly.db')
         c = conn.cursor()
-        c.execute("SELECT id, username, password, role FROM users WHERE username = ?", (username, ))
+        c.execute("SELECT id, username, password, role FROM users WHERE username = ?", (username,))
         user = c.fetchone()
         conn.close()
 
@@ -97,6 +101,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+
 @app.route('/dashboard')
 @checkLogin
 def dashboard():
@@ -106,16 +111,15 @@ def dashboard():
     conn = sqlite3.connect('rewardly.db')
     c = conn.cursor()
 
-
-    c.execute("SELECT username, role FROM users WHERE id = ?", (uid, ))
+    c.execute("SELECT username, role FROM users WHERE id = ?", (uid,))
     curUser = c.fetchone()
 
     if role == 'admin':
         c.execute("SELECT * FROM points ORDER BY timestamp DESC")
     elif role == 'mod':
-        c.execute("SELECT * FROM points WHERE operator = ? ORDER BY timestamp DESC", (curUser[0], ))
+        c.execute("SELECT * FROM points WHERE operator = ? ORDER BY timestamp DESC", (curUser[0],))
     else:
-        c.execute("SELECT * FROM points WHERE person = ? ORDER BY timestamp DESC", (curUser[0], ))
+        c.execute("SELECT * FROM points WHERE person = ? ORDER BY timestamp DESC", (curUser[0],))
 
     records = c.fetchall()
     conn.close()
@@ -132,7 +136,7 @@ def add_record():
 
         conn = sqlite3.connect('rewardly.db')
         c = conn.cursor()
-        c.execute("SELECT username FROM users WHERE username = ? ", (person, ))
+        c.execute("SELECT username FROM users WHERE username = ? ", (person,))
         if not c.fetchall():
             flash("Target user does not exist!", "error")
             conn.close()
@@ -147,7 +151,8 @@ def add_record():
             return redirect(url_for('add_record'))
 
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        c.execute("INSERT INTO points (timestamp, person, operator, points, reason) VALUES (?, ?, ?, ?, ?)", (timestamp, person, curUser, pointDelta, reason))
+        c.execute("INSERT INTO points (timestamp, person, operator, points, reason) VALUES (?, ?, ?, ?, ?)",
+                  (timestamp, person, curUser, pointDelta, reason))
 
         conn.commit()
         conn.close()
@@ -248,6 +253,92 @@ def delete_record(record_id):
     return redirect(url_for('dashboard'))
 
 
+@app.route('/export_excel', methods=['GET', 'POST'])
+@checkLogin
+def export_excel():
+    if request.method == 'POST':
+        start_date = request.form.get('start_date')
+        end_date = request.form.get('end_date')
+
+        # 验证日期格式
+        try:
+            if start_date:
+                datetime.strptime(start_date, '%Y-%m-%d')
+            if end_date:
+                datetime.strptime(end_date, '%Y-%m-%d')
+        except ValueError:
+            flash('日期格式错误，请使用 YYYY-MM-DD 格式', 'error')
+            return redirect(url_for('export_excel'))
+
+        # 构建查询条件
+        query = "SELECT * FROM points"
+        params = []
+
+        if start_date and end_date:
+            query += " WHERE timestamp BETWEEN ? AND ?"
+            params.extend([start_date, end_date])
+        elif start_date:
+            query += " WHERE timestamp >= ?"
+            params.append(start_date)
+        elif end_date:
+            query += " WHERE timestamp <= ?"
+            params.append(end_date)
+
+        query += " ORDER BY timestamp DESC"
+
+        # 查询数据
+        conn = sqlite3.connect('rewardly.db')
+        df = pd.read_sql_query(query, conn, params=params)
+        conn.close()
+
+        # 生成宽数据格式
+        if not df.empty:
+            # 将长数据转换为宽数据格式
+            pivot_df = df.pivot_table(
+                index=['person'],
+                columns='reason',
+                values='points',
+                aggfunc='sum',
+                fill_value=0
+            )
+
+            # 如果有多个相同类型的操作，合并为总计
+            if isinstance(pivot_df.columns, pd.MultiIndex):
+                pivot_df = pivot_df.groupby(level=0, axis=1).sum()
+
+            # 重新计算每个人的总分
+            df['date'] = pd.to_datetime(df['timestamp']).dt.date
+            summary_df = df.groupby(['person', 'date'])[['points']].sum().reset_index()
+            summary_df = summary_df.sort_values(['person', 'date'])
+        else:
+            pivot_df = pd.DataFrame()
+            summary_df = pd.DataFrame(columns=['person', 'date', 'points'])
+
+        # 创建Excel文件
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # 写入原始数据
+            df.to_excel(writer, sheet_name='原始数据', index=False)
+
+            # 写入宽数据格式
+            if not pivot_df.empty:
+                pivot_df.to_excel(writer, sheet_name='宽数据汇总')
+
+            # 写入按日期汇总的数据
+            summary_df.to_excel(writer, sheet_name='按日期汇总', index=False)
+
+        output.seek(0)
+
+        # 返回Excel文件
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f'rewardly_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        )
+
+    return render_template('export_excel.html')
+
 
 template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 os.makedirs(template_dir, exist_ok=True)
@@ -316,6 +407,7 @@ dashboard_html = '''
         .btn-warning { background-color: #ffc107; color: black; }
         .btn-danger { background-color: #dc3545; }
         .btn-success { background-color: #28a745; }
+        .btn-info { background-color: #17a2b8; }
         .actions { display: flex; gap: 5px; }
         .flash-messages { margin-bottom: 15px; }
         .flash-error { color: red; }
@@ -342,6 +434,7 @@ dashboard_html = '''
     {% endwith %}
 
     <a href="{{ url_for('add_record') }}" class="btn btn-primary">添加积分记录</a>
+    <a href="{{ url_for('export_excel') }}" class="btn btn-info">导出Excel</a>
 
     <table>
         <thead>
@@ -476,6 +569,57 @@ edit_record_html = '''
 </html>
 '''
 
+# 导出Excel页面模板
+export_excel_html = '''
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>导出Excel - 积分管理系统</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f5f5f5; }
+        .container { max-width: 500px; margin: 50px auto; padding: 20px; background-color: white; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        input[type="date"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 3px; }
+        button { width: 100%; padding: 10px; background-color: #17a2b8; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background-color: #138496; }
+        a { display: inline-block; margin-top: 10px; color: #007bff; text-decoration: none; }
+        .flash-messages { margin-bottom: 15px; }
+        .flash-error { color: red; }
+        .flash-success { color: green; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>导出积分数据到Excel</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        <form method="POST">
+            <label for="start_date">开始日期 (可选):</label>
+            <input type="date" name="start_date" id="start_date">
+
+            <label for="end_date">结束日期 (可选):</label>
+            <input type="date" name="end_date" id="end_date">
+
+            <button type="submit">导出Excel</button>
+        </form>
+        <a href="{{ url_for('dashboard') }}">返回仪表盘</a>
+        <p style="margin-top: 15px; font-size: 14px; color: #666;">
+            提示：如果只填写开始日期，则导出从该日期之后的所有数据<br>
+            如果只填写结束日期，则导出到该日期为止的所有数据<br>
+            如果两个日期都填写，则导出这两个日期之间的数据
+        </p>
+    </div>
+</body>
+</html>
+'''
+
 # 写入模板文件
 with open(os.path.join(template_dir, 'login.html'), 'w', encoding='utf-8') as f:
     f.write(login_html)
@@ -488,6 +632,9 @@ with open(os.path.join(template_dir, 'add_record.html'), 'w', encoding='utf-8') 
 
 with open(os.path.join(template_dir, 'edit_record.html'), 'w', encoding='utf-8') as f:
     f.write(edit_record_html)
+
+with open(os.path.join(template_dir, 'export_excel.html'), 'w', encoding='utf-8') as f:
+    f.write(export_excel_html)
 
 if __name__ == '__main__':
     initDB()

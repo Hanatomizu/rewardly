@@ -16,6 +16,7 @@
         .btn-warning { background-color: #ffc107; color: black; }
         .btn-danger { background-color: #dc3545; }
         .btn-success { background-color: #28a745; }
+        .btn-info { background-color: #17a2b8; }
         .actions { display: flex; gap: 5px; }
         .flash-messages { margin-bottom: 15px; }
         .flash-error { color: red; }
@@ -42,6 +43,7 @@
     {% endwith %}
 
     <a href="{{ url_for('add_record') }}" class="btn btn-primary">添加积分记录</a>
+    <a href="{{ url_for('export_excel') }}" class="btn btn-info">导出Excel</a>
 
     <table>
         <thead>
