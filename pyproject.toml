@@ -1,0 +1,9 @@
+[project]
+name = "rewardly"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "flask>=3.1.2",
+    "pysqlite3>=0.6.0",
+]

@@ -1,0 +1,80 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>仪表盘 - 积分管理系统</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; background-color: white; border-radius: 5px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #007bff; color: white; }
+        tr:hover { background-color: #f5f5f5; }
+        .btn { padding: 8px 15px; text-decoration: none; color: white; border-radius: 3px; margin-right: 5px; }
+        .btn-primary { background-color: #007bff; }
+        .btn-warning { background-color: #ffc107; color: black; }
+        .btn-danger { background-color: #dc3545; }
+        .btn-success { background-color: #28a745; }
+        .actions { display: flex; gap: 5px; }
+        .flash-messages { margin-bottom: 15px; }
+        .flash-error { color: red; }
+        .flash-success { color: green; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>积分管理系统</h1>
+        <div>
+            <span>欢迎, {{ curUser[0] }} ({{ curUser[1] }})</span>
+            <a href="{{ url_for('logout') }}" class="btn btn-danger" style="display:inline-block; margin-left: 10px;">退出</a>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                    <div class="flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <a href="{{ url_for('add_record') }}" class="btn btn-primary">添加积分记录</a>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>时间</th>
+                <th>负责人</th>
+                <th>操作者</th>
+                <th>积分变化</th>
+                <th>原因</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in records %}
+            <tr>
+                <td>{{ record[0] }}</td>
+                <td>{{ record[1] }}</td>
+                <td>{{ record[2] }}</td>
+                <td>{{ record[3] }}</td>
+                <td>{{ record[4] }}</td>
+                <td>{{ record[5] }}</td>
+                <td class="actions">
+                    {% if session.role == 'admin' or (session.role == 'mod' and record[3] == session.username) %}
+                        <a href="{{ url_for('edit_record', record_id=record[0]) }}" class="btn btn-warning">编辑</a>
+                    {% endif %}
+                    {% if session.role == 'admin' %}
+                        <a href="{{ url_for('delete_record', record_id=record[0]) }}" class="btn btn-danger" onclick="return confirm('确定要删除这条记录吗？')">删除</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
