@@ -1,0 +1,26 @@
+Rewardly
+
+    A web-based classroom point management system. Teachers can award or 
+  deduct points for students, and export records.
+
+Quick start:
+   `uv run gunicorn -w 4 main:app`
+
+
+License
+  - MIT License
+
+
+Author
+  - Hanatomizu <chart11from21@outlook.com>
+
+
+Thanks to
+  - Flask
+  - pandas
+  - sqlite3
+  - Gunicorn
+  - Python
+  - and all the open-source contributors
+  
+ 
