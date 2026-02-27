@@ -117,7 +117,7 @@ def dashboard():
     if role == 'admin':
         c.execute("SELECT * FROM points ORDER BY timestamp DESC")
     elif role == 'mod':
-        c.execute("SELECT * FROM points WHERE operator = ? ORDER BY timestamp DESC", (curUser[0],))
+        c.execute("SELECT * FROM points WHERE operator = ? OR person = ? ORDER BY timestamp DESC", (curUser[0], curUser[0],))
     else:
         c.execute("SELECT * FROM points WHERE person = ? ORDER BY timestamp DESC", (curUser[0],))
 
