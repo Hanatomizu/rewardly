@@ -8,7 +8,7 @@ from io import BytesIO
 
 app = Flask("Rewardly")
 app.secret_key = "rewardly_hanatomizu"
-
+app.jinja_env.globals.update(max=max, min=min)
 
 def initDB():
     conn = sqlite3.connect("rewardly.db")
@@ -74,6 +74,65 @@ def index():
     return redirect(url_for("dashboard"))
 
 
+@app.route('/dashboard')
+@checkLogin
+def dashboard():
+    page = request.args.get('page', 1, type=int)
+    per_page = 50  # 每页显示10条记录
+
+    uid = session['uid']
+    role = session['role']
+
+    conn = sqlite3.connect('rewardly.db')
+    c = conn.cursor()
+
+    c.execute("SELECT username, role FROM users WHERE id = ?", (uid,))
+    curUser = c.fetchone()
+
+    # 获取总数用于分页计算
+    if role == 'admin':
+        count_query = "SELECT COUNT(*) FROM points"
+        data_query = "SELECT * FROM points ORDER BY id DESC LIMIT ? OFFSET ?"
+    elif role == 'mod':
+        count_query = "SELECT COUNT(*) FROM points WHERE operator = ? OR person = ?"
+        data_query = "SELECT * FROM points WHERE operator = ? OR person = ? ORDER BY id DESC LIMIT ? OFFSET ?"
+    else:
+        count_query = "SELECT COUNT(*) FROM points WHERE person = ?"
+        data_query = "SELECT * FROM points WHERE person = ? ORDER BY id DESC LIMIT ? OFFSET ?"
+
+    # 计算总数
+    if role == 'admin':
+        c.execute(count_query)
+    elif role == 'mod':
+        c.execute(count_query, (curUser[0], curUser[0]))
+    else:
+        c.execute(count_query, (curUser[0],))
+
+    total_count = c.fetchone()[0]
+    total_pages = (total_count + per_page - 1) // per_page  # 向上取整
+
+    # 计算偏移量
+    offset = (page - 1) * per_page
+
+    # 获取当前页数据
+    if role == 'admin':
+        c.execute(data_query, (per_page, offset))
+    elif role == 'mod':
+        c.execute(data_query, (curUser[0], curUser[0], per_page, offset))
+    else:
+        c.execute(data_query, (curUser[0], per_page, offset))
+
+    records = c.fetchall()
+    conn.close()
+
+    return render_template('dashboard.html',
+                           records=records,
+                           curUser=curUser,
+                           page=page,
+                           total_pages=total_pages,
+                           total_count=total_count)
+
+
 @app.route("/login", methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -82,7 +141,8 @@ def login():
 
         conn = sqlite3.connect('rewardly.db')
         c = conn.cursor()
-        c.execute("SELECT id, username, password, role FROM users WHERE username = ? OR shortname = ?", (username, username))
+        c.execute("SELECT id, username, password, role FROM users WHERE username = ? OR shortname = ?",
+                  (username, username))
         user = c.fetchone()
         conn.close()
 
@@ -101,30 +161,6 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
-
-
-@app.route('/dashboard')
-@checkLogin
-def dashboard():
-    uid = session['uid']
-    role = session['role']
-
-    conn = sqlite3.connect('rewardly.db')
-    c = conn.cursor()
-
-    c.execute("SELECT username, role FROM users WHERE id = ?", (uid,))
-    curUser = c.fetchone()
-
-    if role == 'admin':
-        c.execute("SELECT * FROM points ORDER BY timestamp DESC")
-    elif role == 'mod':
-        c.execute("SELECT * FROM points WHERE operator = ? OR person = ? ORDER BY timestamp DESC", (curUser[0], curUser[0],))
-    else:
-        c.execute("SELECT * FROM points WHERE person = ? ORDER BY timestamp DESC", (curUser[0],))
-
-    records = c.fetchall()
-    conn.close()
-    return render_template('dashboard.html', records=records, curUser=curUser)
 
 
 @app.route("/add_record", methods=['GET', 'POST'])
@@ -517,10 +553,39 @@ dashboard_html = '''
         .btn-danger { background-color: #dc3545; }
         .btn-success { background-color: #28a745; }
         .btn-info { background-color: #17a2b8; }
+        .btn-secondary { background-color: #6c757d; }
         .actions { display: flex; gap: 5px; }
         .flash-messages { margin-bottom: 15px; }
         .flash-error { color: red; }
         .flash-success { color: green; }
+        .pagination { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            margin-top: 20px; 
+            gap: 10px;
+        }
+        .pagination a, .pagination span { 
+            padding: 8px 15px; 
+            text-decoration: none; 
+            border: 1px solid #ddd; 
+            border-radius: 3px; 
+        }
+        .pagination .current { 
+            background-color: #007bff; 
+            color: white; 
+            border-color: #007bff; 
+        }
+        .pagination a:hover:not(.current) { 
+            background-color: #e9ecef; 
+        }
+        .stats { 
+            background-color: white; 
+            padding: 15px; 
+            border-radius: 5px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+            margin-bottom: 20px; 
+        }
     </style>
 </head>
 <body>
@@ -579,6 +644,34 @@ dashboard_html = '''
             {% endfor %}
         </tbody>
     </table>
+
+    <div class="stats">
+        <p><strong>总记录数：</strong>{{ total_count }} 条 | 
+           <strong>当前页：</strong>{{ page }} / {{ total_pages }}</p>
+    </div>
+
+    <!-- 分页导航 -->
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+            <a href="{{ url_for('dashboard', page=1) }}" class="btn btn-secondary">&laquo; 首页</a>
+            <a href="{{ url_for('dashboard', page=page-1) }}" class="btn btn-secondary">&lt; 上一页</a>
+        {% endif %}
+
+        {% for p in range(max(1, page-2), min(total_pages+1, page+3)) %}
+            {% if p == page %}
+                <span class="current">{{ p }}</span>
+            {% else %}
+                <a href="{{ url_for('dashboard', page=p) }}" class="btn btn-secondary">{{ p }}</a>
+            {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+            <a href="{{ url_for('dashboard', page=page+1) }}" class="btn btn-secondary">下一页 &gt;</a>
+            <a href="{{ url_for('dashboard', page=total_pages) }}" class="btn btn-secondary">末页 &raquo;</a>
+        {% endif %}
+    </div>
+    {% endif %}
 </body>
 </html>
 '''
