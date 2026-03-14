@@ -16,6 +16,7 @@ def initDB():
     c.execute('''CREATE TABLE IF NOT EXISTS users (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  username TEXT UNIQUE NOT NULL,
+                 shortname TEXT UNIQUE NOT NULL,
                  password TEXT NOT NULL,
                  role TEXT DEFAULT 0
                  )
@@ -81,7 +82,7 @@ def login():
 
         conn = sqlite3.connect('rewardly.db')
         c = conn.cursor()
-        c.execute("SELECT id, username, password, role FROM users WHERE username = ?", (username,))
+        c.execute("SELECT id, username, password, role FROM users WHERE username = ? OR shortname = ?", (username, username))
         user = c.fetchone()
         conn.close()
 
@@ -136,8 +137,9 @@ def add_record():
 
         conn = sqlite3.connect('rewardly.db')
         c = conn.cursor()
-        c.execute("SELECT username FROM users WHERE username = ? ", (person,))
-        if not c.fetchall():
+        c.execute("SELECT username FROM users WHERE username = ? OR shortname = ? ", (person, person))
+        user = c.fetchone()
+        if not user:
             flash("Target user does not exist!", "error")
             conn.close()
             return redirect(url_for('add_record'))
@@ -149,10 +151,9 @@ def add_record():
             flash("Permission Denied!", 'error')
             conn.close()
             return redirect(url_for('add_record'))
-
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         c.execute("INSERT INTO points (timestamp, person, operator, points, reason) VALUES (?, ?, ?, ?, ?)",
-                  (timestamp, person, curUser, pointDelta, reason))
+                  (timestamp, user[0], curUser, pointDelta, reason))
 
         conn.commit()
         conn.close()
@@ -615,11 +616,8 @@ add_record_html = '''
         {% endwith %}
         <form method="POST">
             <label for="person">负责人:</label>
-            <select name="person" id="person" required>
-                {% for user in users %}
-                    <option value="{{ user }}">{{ user }}</option>
-                {% endfor %}
-            </select>
+
+            <input type="text" name="person" id="person" required>
 
             <label for="points">积分变化 (正数为加分，负数为扣分):</label>
             <input type="number" step="0.01" name="points" id="points" required>
